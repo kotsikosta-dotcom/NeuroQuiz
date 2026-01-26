@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Neuro Quiz Paddle Tracker + Score</title>
+
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
+<link rel="manifest" href="manifest.json">
+
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+
+    .topbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 12px; }
+    button { padding: 10px 12px; border: 1px solid #bbb; border-radius: 10px; background: #fff; font-size: 14px; }
+    button:active { transform: scale(0.99); }
+
+    .counts { display: flex; gap: 10px; font-size: 14px; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; border: 1px solid #ddd; }
+
+    /* ROOM LAYOUT: two columns with a big gap */
+    .room {
+      display: grid;
+      grid-template-columns: minmax(150px, 280px) minmax(150px, 280px);
+      column-gap: clamp(50px, 14vw, 160px);
+      align-items: start;
+      max-width: 900px;
+    }
+
+    /* each side is a 10-row grid so we can place clusters + academic station */
+    .stack {
+      display: grid;
+      grid-template-rows: repeat(10, auto);
+      gap: 12px;               /* phone-friendly density */
+      align-content: start;
+    }
+
+    .tile {
+
+      border: 2px solid #ddd;
+      border-radius: 14px;
+      padding: 16px 10px;
+      text-align: center;
+      font-weight: 800;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+      background: #f6f6f6;
+      position: relative;
+    }
+/* Make LEFT-side tables bigger so 1–3 sit visually at the bottom and align nicely with 4–6 */
+#leftStack .tile {
+  padding-top: 22px;
+  padding-bottom: 22px;
+  min-height: 108px; /* increase/decrease if you want */
+}
+/* Make Academic Station match left-side table size */
+#leftStack .academic-station {
+  min-height: 108px;
+  padding-top: 22px;
+  padding-bottom: 22px;
+}
+    .neutral { background: #f6f6f6; border-color: #ddd; }
+    .green   { background: #e8f7ea; border-color: #2e7d32; }
+    .red     { background: #fdeaea; border-color: #c62828; }
+    .answer  { background: #e8f0ff; border-color: #1e40af; } /* answering team */
+
+    .tile small { display: block; font-weight: 650; opacity: 0.80; margin-top: 6px; }
+    .scoreline { margin-top: 6px; font-size: 18px; font-variant-numeric: tabular-nums; }
+
+    /* Academic station (LEFT column between 16 and 1) */
+    .academic-station {
+      border: 2px dashed #999;
+      border-radius: 14px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 10px;
+      font-weight: 800;
+      color: #333;
+      pointer-events: none; /* not clickable */
+      min-height: 86px;
+      transition: box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .academic-station .qnum {
+      font-size: 22px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .academic-station.pulse {
+      background: #eef5ff;
+      box-shadow: 0 0 0 4px rgba(30, 64, 175, 0.15);
+    }
+
+    .log {
+      margin-top: 14px;
+      max-width: 900px;
+      border-top: 1px solid #eee;
+      padding-top: 10px;
+    }
+    .log h2 { font-size: 14px; margin: 0 0 6px; }
+    .log pre {
+      background: #0b0b0b;
+      color: #eaeaea;
+      padding: 10px;
+      border-radius: 10px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    .hint { font-size: 12px; opacity: 0.75; margin-top: 8px; }
+  </style>
+</head>
+
+<body>
+  <h1>Neuro Quiz Tracker + Score (room layout)</h1>
+
+  <div class="topbar">
+    <button id="resetBtn" type="button">Reset colours</button>
+    <button id="clearGreensBtn" type="button">Clear Greens (keep Reds)</button>
+
+    <button id="awardBtn" type="button">Award points (Correct)</button>
+    <button id="undoAwardBtn" type="button">Undo last award</button>
+    <button id="adjustBtn" type="button">Adjust score…</button>
+    <button id="resetScoresBtn" type="button">Reset scores</button>
+
+    <button id="snapshotBtn" type="button">Snapshot current state</button>
+    <button id="clearLogBtn" type="button">Clear snapshots</button>
+
+    <div class="counts">
+      <span class="pill">🟢 Green: <b id="greenCount">0</b></span>
+      <span class="pill">🔴 Red: <b id="redCount">0</b></span>
+      <span class="pill">🔵 Answering: <b id="answerCount">0</b></span>
+      <span class="pill">⚪ Neutral: <b id="neutralCount">16</b></span>
+    </div>
+  </div>
+
+  <div class="room">
+    <div class="stack" id="leftStack"></div>
+    <div class="stack" id="rightStack"></div>
+  </div>
+
+  <div class="log">
+    <h2>Snapshots</h2>
+    <pre id="log"></pre>
+    <div class="hint">
+      Tap cycles <b>Neutral → Green → Red</b>. Long-press (mobile) or right-click (desktop) toggles <b>Answering (blue)</b>.
+      <br/>Award points: +2 to Answering (blue), +1 to all Greens, then colours reset. Question counter increments on Award.
+    </div>
+  </div>
+
+<script>
+  // ===== LAYOUT =====
+  // Left column:
+  //   14–16 at top (rows 1–3)
+  //   Academic station in the gap (rows 4–5)
+  //   1–3 aligned with 4–6 (rows 6–8)
+  //
+  // Right column: 13 down to 4 (rows 1–10)
+
+  const LEFT_LAYOUT = [
+    { kind: "table", table: 14, row: 1 },
+    { kind: "table", table: 15, row: 2 },
+    { kind: "table", table: 16, row: 3 },
+
+    // Academic station fills the gap between 16 and 1
+    { kind: "station", rowStart: 4, rowEnd: 6 },
+
+    // aligned with tables 4–6 on right
+    { kind: "table", table:  1, row: 6 },
+    { kind: "table", table:  2, row: 7 },
+    { kind: "table", table:  3, row: 8 },
+  ];
+
+  const RIGHT_LAYOUT = [
+    { table: 13, row: 1 },
+    { table: 12, row: 2 },
+    { table: 11, row: 3 },
+    { table: 10, row: 4 },
+    { table:  9, row: 5 },
+    { table:  8, row: 6 },
+    { table:  7, row: 7 },
+    { table:  6, row: 8 },
+    { table:  5, row: 9 },
+    { table:  4, row: 10 },
+  ];
+
+  const NUM_TABLES = 16;
+
+  // States: neutral | green | red | answer
+  const states = Array(NUM_TABLES).fill("neutral");
+
+  // Scores
+  const scores = Array(NUM_TABLES).fill(0);
+
+  // Question counter (starts at 1)
+  let questionNumber = 1;
+
+  // Undo stack for awards (stores score deltas + previous states + previous questionNumber)
+  const awardUndoStack = [];
+
+  const leftStack = document.getElementById("leftStack");
+  const rightStack = document.getElementById("rightStack");
+  const logEl = document.getElementById("log");
+
+  const greenCountEl = document.getElementById("greenCount");
+  const redCountEl = document.getElementById("redCount");
+  const answerCountEl = document.getElementById("answerCount");
+  const neutralCountEl = document.getElementById("neutralCount");
+
+  function stationHTML(rowStart, rowEnd) {
+    return `
+      <div id="academicStation"
+           class="academic-station"
+           style="grid-row:${rowStart} / ${rowEnd};">
+        Academic station
+        <div class="qnum" id="qnum">Q${questionNumber}</div>
+      </div>
+    `;
+  }
+
+  function tileHTML(tableNum, gridRow) {
+    const state = states[tableNum - 1];
+    const score = scores[tableNum - 1];
+    const label = (state === "answer") ? "ANSWERING" : state.toUpperCase();
+
+    return `
+      <div class="tile ${state}" data-table="${tableNum}" style="grid-row:${gridRow};">
+        Table ${tableNum}
+        <div class="scoreline">${score}</div>
+        <small>${label}</small>
+      </div>
+    `;
+  }
+
+  function render() {
+    // Left stack may contain tables + academic station
+    leftStack.innerHTML = LEFT_LAYOUT.map(item => {
+      if (item.kind === "station") return stationHTML(item.rowStart, item.rowEnd);
+      return tileHTML(item.table, item.row);
+    }).join("");
+
+    // Right stack is tables only
+    rightStack.innerHTML = RIGHT_LAYOUT.map(x => tileHTML(x.table, x.row)).join("");
+
+    // Attach handlers
+    leftStack.querySelectorAll(".tile").forEach(el => attachHandlers(el));
+    rightStack.querySelectorAll(".tile").forEach(el => attachHandlers(el));
+
+    // Update Q display if station exists
+    const q = document.getElementById("qnum");
+    if (q) q.textContent = "Q" + questionNumber;
+
+    updateCounts();
+  }
+
+  function attachHandlers(el) {
+    const tableNum = parseInt(el.dataset.table, 10);
+    const idx = tableNum - 1;
+
+    // Tap/click cycles neutral -> green -> red -> neutral
+    el.addEventListener("click", () => {
+      const cur = states[idx];
+      if (cur === "answer") return; // prevent accidental change while answering
+      states[idx] = (cur === "neutral") ? "green"
+                 : (cur === "green")   ? "red"
+                 : "neutral";
+      render();
+    });
+
+    // Right-click toggles answering (desktop)
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      toggleAnswer(idx);
+    });
+
+    // Long-press toggles answering (mobile)
+    let pressTimer = null;
+    el.addEventListener("touchstart", () => {
+      pressTimer = setTimeout(() => toggleAnswer(idx), 450);
+    }, { passive: true });
+
+    el.addEventListener("touchend", () => {
+      if (pressTimer) clearTimeout(pressTimer);
+      pressTimer = null;
+    }, { passive: true });
+
+    el.addEventListener("touchmove", () => {
+      if (pressTimer) clearTimeout(pressTimer);
+      pressTimer = null;
+    }, { passive: true });
+  }
+
+  // Only ONE answering table at a time
+  function toggleAnswer(tableIdx) {
+    const cur = states[tableIdx];
+
+    if (cur !== "answer") {
+      for (let i = 0; i < NUM_TABLES; i++) {
+        if (states[i] === "answer") states[i] = "neutral";
+      }
+      states[tableIdx] = "answer";
+    } else {
+      states[tableIdx] = "neutral";
+    }
+    render();
+  }
+
+  function updateCounts() {
+    const g = states.filter(s => s === "green").length;
+    const r = states.filter(s => s === "red").length;
+    const a = states.filter(s => s === "answer").length;
+    const n = states.filter(s => s === "neutral").length;
+    greenCountEl.textContent = g;
+    redCountEl.textContent = r;
+    answerCountEl.textContent = a;
+    neutralCountEl.textContent = n;
+  }
+
+  function snapshot() {
+    const g = [], r = [], a = [], n = [];
+    states.forEach((s, i) => {
+      const tableNum = i + 1;
+      if (s === "green") g.push(tableNum);
+      else if (s === "red") r.push(tableNum);
+      else if (s === "answer") a.push(tableNum);
+      else n.push(tableNum);
+    });
+
+    const stamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+    const line =
+      `[${stamp}] Q${questionNumber}  ANSWER: ${a.length ? a.join(", ") : "-"} | GREEN: ${g.length ? g.join(", ") : "-"} | RED: ${r.length ? r.join(", ") : "-"} | NEUTRAL: ${n.length ? n.join(", ") : "-"}`;
+    logEl.textContent = (logEl.textContent ? (logEl.textContent + "\n") : "") + line;
+  }
+
+  function resetColours() {
+    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+    render();
+  }
+
+  function clearGreensKeepReds() {
+    for (let i = 0; i < NUM_TABLES; i++) {
+      if (states[i] === "green") states[i] = "neutral";
+      // keep reds and answering as-is
+    }
+    render();
+  }
+
+  function findAnsweringIdx() {
+    return states.findIndex(s => s === "answer"); // -1 if none
+  }
+
+  function pulseStation() {
+    const station = document.getElementById("academicStation");
+    if (!station) return;
+    station.classList.add("pulse");
+    setTimeout(() => station.classList.remove("pulse"), 260);
+  }
+
+  function awardPointsCorrect() {
+    const ansIdx = findAnsweringIdx();
+    if (ansIdx === -1) {
+      alert("No answering table selected (blue). Long-press or right-click a table to set it as ANSWERING.");
+      return;
+    }
+
+    // Undo payload stores: score changes + previous states + previous question number
+    const prevStates = states.slice();
+    const prevQ = questionNumber;
+    const changes = []; // {idx, delta}
+
+    // +2 to answering
+    scores[ansIdx] += 2;
+    changes.push({ idx: ansIdx, delta: 2 });
+
+    // +1 to all greens
+    for (let i = 0; i < NUM_TABLES; i++) {
+      if (states[i] === "green") {
+        scores[i] += 1;
+        changes.push({ idx: i, delta: 1 });
+      }
+    }
+
+    awardUndoStack.push({ changes, prevStates, prevQ });
+
+    // Reset colours after awarding + increment question number
+    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+    questionNumber += 1;
+
+    pulseStation();
+    render();
+  }
+
+  function undoLastAward() {
+    const last = awardUndoStack.pop();
+    if (!last) return;
+
+    // revert scores
+    for (const ch of last.changes) {
+      scores[ch.idx] -= ch.delta;
+      if (scores[ch.idx] < 0) scores[ch.idx] = 0;
+    }
+
+    // restore colours + question number
+    for (let i = 0; i < NUM_TABLES; i++) states[i] = last.prevStates[i];
+    questionNumber = last.prevQ;
+
+    render();
+  }
+
+  function adjustScorePrompt() {
+    // Formats:
+    //  "7,+2"
+    //  "10,-1"
+    //  "12,=5"   (set to 5)
+    const raw = prompt('Adjust score (format: "table,delta" e.g. 7,+2 or 10,-1 OR set using "table,=5")');
+    if (!raw) return;
+
+    const parts = raw.split(",").map(s => s.trim());
+    if (parts.length !== 2) {
+      alert("Invalid format. Use: table,delta  (e.g. 7,+2) or table,=newScore (e.g. 7,=5)");
+      return;
+    }
+
+    const tableNum = parseInt(parts[0], 10);
+    if (!Number.isFinite(tableNum) || tableNum < 1 || tableNum > NUM_TABLES) {
+      alert("Invalid table number.");
+      return;
+    }
+    const idx = tableNum - 1;
+
+    const op = parts[1];
+
+    if (op.startsWith("=")) {
+      const newScore = parseInt(op.slice(1), 10);
+      if (!Number.isFinite(newScore) || newScore < 0) {
+        alert("Invalid score.");
+        return;
+      }
+      scores[idx] = newScore;
+      render();
+      return;
+    }
+
+    const delta = parseInt(op, 10);
+    if (!Number.isFinite(delta)) {
+      alert("Invalid delta. Example: +2 or -1");
+      return;
+    }
+    scores[idx] = Math.max(0, scores[idx] + delta);
+    render();
+  }
+
+  function resetScores() {
+    const response = prompt('Type "YES" to reset ALL scores (cannot be undone).');
+    if (response !== "YES") return;
+
+    for (let i = 0; i < NUM_TABLES; i++) scores[i] = 0;
+    awardUndoStack.length = 0;
+    questionNumber = 1;
+    render();
+  }
+
+  // Buttons
+  document.getElementById("resetBtn").addEventListener("click", resetColours);
+  document.getElementById("clearGreensBtn").addEventListener("click", clearGreensKeepReds);
+
+  document.getElementById("awardBtn").addEventListener("click", awardPointsCorrect);
+  document.getElementById("undoAwardBtn").addEventListener("click", undoLastAward);
+  document.getElementById("adjustBtn").addEventListener("click", adjustScorePrompt);
+  document.getElementById("resetScoresBtn").addEventListener("click", resetScores);
+
+  document.getElementById("snapshotBtn").addEventListener("click", snapshot);
+  document.getElementById("clearLogBtn").addEventListener("click", () => logEl.textContent = "");
+
+  render();
+</script>
+</body>
+</html>
