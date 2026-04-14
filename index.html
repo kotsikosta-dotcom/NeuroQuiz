@@ -52,18 +52,21 @@
       background: #f6f6f6;
       position: relative;
     }
-/* Make LEFT-side tables bigger so 1–3 sit visually at the bottom and align nicely with 4–6 */
-#leftStack .tile {
-  padding-top: 22px;
-  padding-bottom: 22px;
-  min-height: 108px; /* increase/decrease if you want */
-}
-/* Make Academic Station match left-side table size */
-#leftStack .academic-station {
-  min-height: 108px;
-  padding-top: 22px;
-  padding-bottom: 22px;
-}
+
+    /* Make LEFT-side tables bigger so 1–3 sit visually at the bottom and align nicely with 4–6 */
+    #leftStack .tile {
+      padding-top: 22px;
+      padding-bottom: 22px;
+      min-height: 108px; /* increase/decrease if you want */
+    }
+
+    /* Make Academic Station match left-side table size */
+    #leftStack .academic-station {
+      min-height: 108px;
+      padding-top: 22px;
+      padding-bottom: 22px;
+    }
+
     .neutral { background: #f6f6f6; border-color: #ddd; }
     .green   { background: #e8f7ea; border-color: #2e7d32; }
     .red     { background: #fdeaea; border-color: #c62828; }
@@ -130,6 +133,7 @@
     <button id="clearGreensBtn" type="button">Clear Greens (keep Reds)</button>
 
     <button id="awardBtn" type="button">Award points (Correct)</button>
+    <button id="nextBtn" type="button">Next Question (no points)</button>
     <button id="undoAwardBtn" type="button">Undo last award</button>
     <button id="adjustBtn" type="button">Adjust score…</button>
     <button id="resetScoresBtn" type="button">Reset scores</button>
@@ -293,12 +297,12 @@
     el.addEventListener("touchend", () => {
       if (pressTimer) clearTimeout(pressTimer);
       pressTimer = null;
-    }, { passive: true });
+    });
 
     el.addEventListener("touchmove", () => {
       if (pressTimer) clearTimeout(pressTimer);
       pressTimer = null;
-    }, { passive: true });
+    });
   }
 
   // Only ONE answering table at a time
@@ -401,6 +405,19 @@
     render();
   }
 
+  function nextQuestionNoPoints() {
+    // Reset all colours
+    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+
+    // Increment question number
+    questionNumber += 1;
+
+    // Visual pulse (same as scoring)
+    pulseStation();
+
+    render();
+  }
+
   function undoLastAward() {
     const last = awardUndoStack.pop();
     if (!last) return;
@@ -476,6 +493,7 @@
   document.getElementById("clearGreensBtn").addEventListener("click", clearGreensKeepReds);
 
   document.getElementById("awardBtn").addEventListener("click", awardPointsCorrect);
+  document.getElementById("nextBtn").addEventListener("click", nextQuestionNoPoints);
   document.getElementById("undoAwardBtn").addEventListener("click", undoLastAward);
   document.getElementById("adjustBtn").addEventListener("click", adjustScorePrompt);
   document.getElementById("resetScoresBtn").addEventListener("click", resetScores);
