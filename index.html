@@ -40,7 +40,6 @@
     }
 
     .tile {
-
       border: 2px solid #ddd;
       border-radius: 14px;
       padding: 16px 10px;
@@ -71,6 +70,15 @@
     .green   { background: #e8f7ea; border-color: #2e7d32; }
     .red     { background: #fdeaea; border-color: #c62828; }
     .answer  { background: #e8f0ff; border-color: #1e40af; } /* answering team */
+
+    /* NEW: disabled table */
+    .disabled {
+      background: #d6d6d6 !important;
+      border-color: #8a8a8a !important;
+      color: #5a5a5a;
+      text-decoration: line-through;
+      opacity: 0.9;
+    }
 
     .tile small { display: block; font-weight: 650; opacity: 0.80; margin-top: 6px; }
     .scoreline { margin-top: 6px; font-size: 18px; font-variant-numeric: tabular-nums; }
@@ -131,6 +139,7 @@
   <div class="topbar">
     <button id="resetBtn" type="button">Reset colours</button>
     <button id="clearGreensBtn" type="button">Clear Greens (keep Reds)</button>
+    <button id="disableModeBtn" type="button">Disable Tables: OFF</button>
 
     <button id="awardBtn" type="button">Award points (Correct)</button>
     <button id="nextBtn" type="button">Next Question (no points)</button>
@@ -160,6 +169,7 @@
     <div class="hint">
       Tap cycles <b>Neutral → Green → Red</b>. Long-press (mobile) or right-click (desktop) toggles <b>Answering (blue)</b>.
       <br/>Award points: +2 to Answering (blue), +1 to all Greens, then colours reset. Question counter increments on Award.
+      <br/>When <b>Disable Tables</b> is ON, tapping a table toggles it disabled/enabled.
     </div>
   </div>
 
@@ -207,6 +217,10 @@
   // Scores
   const scores = Array(NUM_TABLES).fill(0);
 
+  // NEW: disabled tables + mode
+  const disabledTables = Array(NUM_TABLES).fill(false);
+  let disableMode = false;
+
   // Question counter (starts at 1)
   let questionNumber = 1;
 
@@ -236,10 +250,13 @@
   function tileHTML(tableNum, gridRow) {
     const state = states[tableNum - 1];
     const score = scores[tableNum - 1];
-    const label = (state === "answer") ? "ANSWERING" : state.toUpperCase();
+    const label =
+      disabledTables[tableNum - 1] ? "DISABLED" :
+      (state === "answer") ? "ANSWERING" :
+      state.toUpperCase();
 
     return `
-      <div class="tile ${state}" data-table="${tableNum}" style="grid-row:${gridRow};">
+      <div class="tile ${state} ${disabledTables[tableNum - 1] ? "disabled" : ""}" data-table="${tableNum}" style="grid-row:${gridRow};">
         Table ${tableNum}
         <div class="scoreline">${score}</div>
         <small>${label}</small>
@@ -273,7 +290,20 @@
     const idx = tableNum - 1;
 
     // Tap/click cycles neutral -> green -> red -> neutral
+    // OR toggles disabled if disable mode is on
     el.addEventListener("click", () => {
+      if (disableMode) {
+        disabledTables[idx] = !disabledTables[idx];
+
+        // If disabling a table, also clear any active colour on it
+        if (disabledTables[idx]) states[idx] = "neutral";
+
+        render();
+        return;
+      }
+
+      if (disabledTables[idx]) return;
+
       const cur = states[idx];
       if (cur === "answer") return; // prevent accidental change while answering
       states[idx] = (cur === "neutral") ? "green"
@@ -285,13 +315,16 @@
     // Right-click toggles answering (desktop)
     el.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      if (disabledTables[idx]) return;
       toggleAnswer(idx);
     });
 
     // Long-press toggles answering (mobile)
     let pressTimer = null;
     el.addEventListener("touchstart", () => {
-      pressTimer = setTimeout(() => toggleAnswer(idx), 450);
+      pressTimer = setTimeout(() => {
+        if (!disabledTables[idx]) toggleAnswer(idx);
+      }, 450);
     }, { passive: true });
 
     el.addEventListener("touchend", () => {
@@ -307,6 +340,8 @@
 
   // Only ONE answering table at a time
   function toggleAnswer(tableIdx) {
+    if (disabledTables[tableIdx]) return;
+
     const cur = states[tableIdx];
 
     if (cur !== "answer") {
@@ -321,10 +356,10 @@
   }
 
   function updateCounts() {
-    const g = states.filter(s => s === "green").length;
-    const r = states.filter(s => s === "red").length;
-    const a = states.filter(s => s === "answer").length;
-    const n = states.filter(s => s === "neutral").length;
+    const g = states.filter((s, i) => s === "green" && !disabledTables[i]).length;
+    const r = states.filter((s, i) => s === "red" && !disabledTables[i]).length;
+    const a = states.filter((s, i) => s === "answer" && !disabledTables[i]).length;
+    const n = states.filter((s, i) => s === "neutral" && !disabledTables[i]).length;
     greenCountEl.textContent = g;
     redCountEl.textContent = r;
     answerCountEl.textContent = a;
@@ -332,10 +367,11 @@
   }
 
   function snapshot() {
-    const g = [], r = [], a = [], n = [];
+    const g = [], r = [], a = [], n = [], d = [];
     states.forEach((s, i) => {
       const tableNum = i + 1;
-      if (s === "green") g.push(tableNum);
+      if (disabledTables[i]) d.push(tableNum);
+      else if (s === "green") g.push(tableNum);
       else if (s === "red") r.push(tableNum);
       else if (s === "answer") a.push(tableNum);
       else n.push(tableNum);
@@ -343,17 +379,20 @@
 
     const stamp = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
     const line =
-      `[${stamp}] Q${questionNumber}  ANSWER: ${a.length ? a.join(", ") : "-"} | GREEN: ${g.length ? g.join(", ") : "-"} | RED: ${r.length ? r.join(", ") : "-"} | NEUTRAL: ${n.length ? n.join(", ") : "-"}`;
+      `[${stamp}] Q${questionNumber}  ANSWER: ${a.length ? a.join(", ") : "-"} | GREEN: ${g.length ? g.join(", ") : "-"} | RED: ${r.length ? r.join(", ") : "-"} | NEUTRAL: ${n.length ? n.join(", ") : "-"} | DISABLED: ${d.length ? d.join(", ") : "-"}`;
     logEl.textContent = (logEl.textContent ? (logEl.textContent + "\n") : "") + line;
   }
 
   function resetColours() {
-    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+    for (let i = 0; i < NUM_TABLES; i++) {
+      if (!disabledTables[i]) states[i] = "neutral";
+    }
     render();
   }
 
   function clearGreensKeepReds() {
     for (let i = 0; i < NUM_TABLES; i++) {
+      if (disabledTables[i]) continue;
       if (states[i] === "green") states[i] = "neutral";
       // keep reds and answering as-is
     }
@@ -361,7 +400,7 @@
   }
 
   function findAnsweringIdx() {
-    return states.findIndex(s => s === "answer"); // -1 if none
+    return states.findIndex((s, i) => s === "answer" && !disabledTables[i]); // -1 if none
   }
 
   function pulseStation() {
@@ -389,7 +428,7 @@
 
     // +1 to all greens
     for (let i = 0; i < NUM_TABLES; i++) {
-      if (states[i] === "green") {
+      if (states[i] === "green" && !disabledTables[i]) {
         scores[i] += 1;
         changes.push({ idx: i, delta: 1 });
       }
@@ -398,7 +437,9 @@
     awardUndoStack.push({ changes, prevStates, prevQ });
 
     // Reset colours after awarding + increment question number
-    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+    for (let i = 0; i < NUM_TABLES; i++) {
+      if (!disabledTables[i]) states[i] = "neutral";
+    }
     questionNumber += 1;
 
     pulseStation();
@@ -406,8 +447,10 @@
   }
 
   function nextQuestionNoPoints() {
-    // Reset all colours
-    for (let i = 0; i < NUM_TABLES; i++) states[i] = "neutral";
+    // Reset all non-disabled colours
+    for (let i = 0; i < NUM_TABLES; i++) {
+      if (!disabledTables[i]) states[i] = "neutral";
+    }
 
     // Increment question number
     questionNumber += 1;
@@ -491,6 +534,11 @@
   // Buttons
   document.getElementById("resetBtn").addEventListener("click", resetColours);
   document.getElementById("clearGreensBtn").addEventListener("click", clearGreensKeepReds);
+
+  document.getElementById("disableModeBtn").addEventListener("click", () => {
+    disableMode = !disableMode;
+    document.getElementById("disableModeBtn").textContent = disableMode ? "Disable Tables: ON" : "Disable Tables: OFF";
+  });
 
   document.getElementById("awardBtn").addEventListener("click", awardPointsCorrect);
   document.getElementById("nextBtn").addEventListener("click", nextQuestionNoPoints);
